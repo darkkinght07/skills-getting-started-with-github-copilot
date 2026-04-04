@@ -1,6 +1,16 @@
+import copy
 import pytest
 from fastapi.testclient import TestClient
-from src.app import app
+from src.app import app, activities
+
+
+@pytest.fixture(autouse=True)
+def reset_activities():
+    """Reset activities state before each test to ensure test isolation."""
+    original = copy.deepcopy(activities)
+    yield
+    activities.clear()
+    activities.update(original)
 
 
 @pytest.fixture
@@ -55,6 +65,22 @@ def test_signup_for_activity_not_found(client):
     assert "Activity not found" in data["detail"]
 
 
+def test_signup_for_activity_already_signed_up(client):
+    # Arrange
+    activity_name = "Chess Club"
+    email = "newstudent@mergington.edu"
+    # Sign up once
+    first_response = client.post(f"/activities/{activity_name}/signup", params={"email": email})
+    assert first_response.status_code == 200
+    # Act - try to sign up again
+    response = client.post(f"/activities/{activity_name}/signup", params={"email": email})
+    # Assert
+    assert response.status_code == 400
+    data = response.json()
+    assert "detail" in data
+    assert "already signed up" in data["detail"]
+
+
 def test_remove_participant_success(client):
     # Arrange
     activity_name = "Chess Club"
@@ -63,7 +89,7 @@ def test_remove_participant_success(client):
     assert signup_response.status_code == 200
 
     # Act
-    response = client.delete(f"/activities/{activity_name}/signup", params={"email": email})
+    response = client.delete(f"/activities/{activity_name}/participants/{email}")
 
     # Assert
     assert response.status_code == 200
@@ -74,8 +100,8 @@ def test_remove_participant_success(client):
 
     activities_response = client.get("/activities")
     assert activities_response.status_code == 200
-    activities = activities_response.json()
-    assert email not in activities[activity_name]["participants"]
+    activities_data = activities_response.json()
+    assert email not in activities_data[activity_name]["participants"]
 
 
 def test_remove_participant_activity_not_found(client):
@@ -84,7 +110,7 @@ def test_remove_participant_activity_not_found(client):
     email = "student@mergington.edu"
 
     # Act
-    response = client.delete(f"/activities/{activity_name}/signup", params={"email": email})
+    response = client.delete(f"/activities/{activity_name}/participants/{email}")
 
     # Assert
     assert response.status_code == 404
@@ -99,10 +125,10 @@ def test_remove_participant_student_not_signed_up(client):
     email = "not.signed.up@mergington.edu"
 
     # Act
-    response = client.delete(f"/activities/{activity_name}/signup", params={"email": email})
+    response = client.delete(f"/activities/{activity_name}/participants/{email}")
 
     # Assert
-    assert response.status_code == 400
+    assert response.status_code == 404
     data = response.json()
     assert "detail" in data
     assert "not signed up" in data["detail"]
